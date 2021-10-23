@@ -11,7 +11,7 @@ from queue import Queue
 
 def with_thread(obj):
     def threads(*args, **kwargs):
-        t = threading.Thread(target=obj, args=args, kwargs=kwargs)
+        t = threading.Thread(target=obj, args=args, kwargs=kwargs, daemon=True)
         t.start()
     return threads
 
