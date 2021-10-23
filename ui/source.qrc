@@ -1,0 +1,11 @@
+<RCC>
+  <qresource prefix="img">
+    <file>img/ACT011.png</file>
+    <file>img/205设置.png</file>
+    <file>img/COM001.png</file>
+    <file>img/发送.png</file>
+    <file>img/开关-关.png</file>
+    <file>img/开关-开.png</file>
+    <file>img/刷新.png</file>
+  </qresource>
+</RCC>
