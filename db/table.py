@@ -13,8 +13,8 @@ class DbBase(object):
         sql = "select name from sqlite_master where name = '{}';".format(self.table)
         return True if len(self.execute(sql)) else False
 
-    def select_all(self):
-        sql = "select * from {}".format(self.table)
+    def select_all(self, add_sql=""):
+        sql = "select * from {} {};".format(self.table, add_sql)
         return self.execute(sql)
 
     def execute(self, sql, commit=False):
@@ -45,14 +45,18 @@ class DbConfig(DbBase):
         # 创建快捷指令表
         self.execute('''CREATE TABLE {} 
                     ( ID INT PRIMARY KEY     NOT NULL,
-                    NAME           TEXT    NOT NULL,
-                    COMMAND        TEXT    NOT NULL);'''.format(self.table), commit=True)
+                    CATEGORY       CHAR(64),
+                    NAME           CHAR(64),
+                    COMMAND        TEXT      NOT NULL,
+                    IS_HEX         SMALLINT  NOT NULL);'''.format(self.table), commit=True)
 
-    def insert_config(self, name="", command=""):
+    def insert_config(self, category="", name="", command="", is_hex=0):
         """
         插入数据
+        :param category: 类别
         :param name: 名称
         :param command: 指令
+        :param is_hex: 是否以16进制字符串发送
         :return:
         """
         # 先获取最后一个id
@@ -61,21 +65,34 @@ class DbConfig(DbBase):
             last_id = 1
         else:
             last_id = last_id[0][0] + 1
-        self.execute("INSERT INTO {} (ID, NAME,COMMAND) VALUES ({}, '{}', '{}')".format(self.table, last_id,
-                                                                                        name, command),
-                     commit=True)
+        self.execute("INSERT INTO {} (ID, CATEGORY, NAME,COMMAND, is_hex)  \
+        VALUES ({}, '{}', '{}', '{}', {})".format(self.table, last_id, category, name, command, is_hex), commit=True)
         return last_id
 
-    def update_config(self, cid, name=None, command=None):
-        if name is None and command is None:
+    def update_config(self, cid, category=None, name=None, command=None, is_hex=None):
+        if category is None and name is None and command is None and is_hex is None:
             return
         update_comment = ""
+        if category is not None:
+            update_comment += "CATEGORY = '{}'".format(category)
         if name is not None:
+            update_comment += "," if update_comment != "" else ""
             update_comment += "NAME = '{}'".format(name)
         if command is not None:
             update_comment += "," if update_comment != "" else ""
             update_comment += "COMMAND = '{}'".format(command)
+        if is_hex is not None:
+            update_comment += "," if update_comment != "" else ""
+            update_comment += "IS_HEX = {}".format(is_hex)
+
         self.execute("UPDATE {} set {} where ID={}".format(self.table, update_comment, cid), commit=True)
 
     def delete(self, cid):
         self.execute("DELETE from {} where ID={};".format(self.table, cid), commit=True)
+
+    def get_category(self):
+        """
+        获取所有类目
+        :return:
+        """
+        return self.execute("select distinct(CATEGORY) from {}".format(self.table))

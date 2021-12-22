@@ -38,10 +38,13 @@ class CommandList(Command_Ui_Dialog, QWidget):
         self.move(1750, 340)
         self.__connect()
         self.config = DbConfig()
-        self.load_config()
+        # self.load_config()
+        self.fill_combobox()
 
     def __connect(self):
         self.pushButton.clicked.connect(self.add_list_item)
+        self.comboBox.currentIndexChanged.connect(self.show_category_result)
+        self.pushButton_4.clicked.connect(self.search_result)
 
     def add_list_item(self):
         current_id = self.config.insert_config()
@@ -49,24 +52,52 @@ class CommandList(Command_Ui_Dialog, QWidget):
 
     def load_config(self):
         for i in self.config.select_all():
-            cid, name, command = i
-            self.add_item(cid, name, command)
+            cid, category, name, command, is_hex = i
+            self.add_item(cid, category, name, command, is_hex)
 
-    def add_item(self, cid, name=None, command=None):
+    def add_item(self, cid, category=None, name=None, command=None, is_hex=0):
         item = QListWidgetItem()
         item.setSizeHint(QSize(200, 50))
         self.item_index[cid] = item
-        widget = Items(cid=cid, name=name, command=command, save_fun=self.config.update_config,
+        widget = Items(cid=cid, category=category, name=name, command=command, is_hex=is_hex,
+                       save_fun=self.config.update_config, refresh_combobox=self.fill_combobox,
                        delete_fun=self.delete_item, send_fun=self.send_fun)
         self.listWidget.addItem(item)
         self.listWidget.setItemWidget(item, widget)
 
     def delete_item(self, cid):
-        print(cid, [i for i in self.item_index.keys()].index(cid))
         self.listWidget.takeItem([i for i in self.item_index.keys()].index(cid))
         self.item_index.pop(cid)
         self.config.delete(cid)
         self.repaint()
+
+    def fill_combobox(self):
+        all_category = self.config.get_category()
+        if all_category:
+            self.comboBox.clear()
+            self.comboBox.addItem("ALL")
+            [self.comboBox.addItem(i[0]) for i in all_category]
+
+    def show_category_result(self):
+        current_text = self.comboBox.currentText()
+        self.listWidget.clear()
+        if current_text == "ALL":
+            self.load_config()
+        else:
+            res = self.config.select_all("where CATEGORY = '{}'".format(current_text))
+            for i in res:
+                cid, category, name, command, is_hex = i
+                self.add_item(cid, category, name, command, is_hex)
+
+    def search_result(self):
+        search = self.lineEdit.text()
+        self.listWidget.clear()
+        sql = "where "
+        sql += "CATEGORY like '%{value}%' OR NAME like '%{value}%' OR COMMAND like '%{value}%'".format(value=search)
+        res = self.config.select_all(sql)
+        for i in res:
+            cid, category, name, command, is_hex = i
+            self.add_item(cid, category, name, command, is_hex)
 
 
 class MainWindow(Ui_MainWindow, QMainWindow):
@@ -162,7 +193,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         else:
             self.com_dealer.close()
 
-    def com_send(self, send_data=None):
+    def com_send(self, send_data=None, is_hex=False):
         if not self.com_dealer.com.isOpen():
             QMessageBox().critical(self, "ERROR", "请先打开串口")
             return
@@ -172,7 +203,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
             data = send_data
         if data == "":
             return
-        if self.send_format == "hex":
+        if (self.send_format == "hex" and not isinstance(send_data, str)) or is_hex:
             data = data.replace(" ", "")
             try:
                 data = binascii.a2b_hex(data)
