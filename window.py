@@ -1,11 +1,15 @@
 import binascii
 import queue
 from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QApplication, QMessageBox, QMainWindow, QFileDialog, QWidget, QStyleOption, QStyle
-from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtWidgets import QApplication, QMessageBox, QMainWindow, QFileDialog, QWidget, QStyleOption, QStyle, \
+    QListWidgetItem
+from PyQt5.QtCore import QTimer, Qt, QSize
 
+from db.table import DbConfig
 from ui.MainWindow import Ui_MainWindow
+from ui.command_items import Items
 from ui.tool_set import Ui_Dialog
+from ui.command_list import Ui_Dialog as Command_Ui_Dialog
 import ui.source_rc
 from core.serial_handler import ComHandler
 import logging
@@ -24,12 +28,53 @@ class SetDialog(Ui_Dialog, QWidget):
         self.radioButton_4.setChecked(True)
 
 
+class CommandList(Command_Ui_Dialog, QWidget):
+    def __init__(self, send_fun, *args, **kwargs):
+        super(CommandList, self).__init__(*args, **kwargs)
+        self.send_fun = send_fun
+        self.item_index = {}
+        self.setupUi(self)
+        self.setWindowTitle('快捷指令')
+        self.move(1750, 340)
+        self.__connect()
+        self.config = DbConfig()
+        self.load_config()
+
+    def __connect(self):
+        self.pushButton.clicked.connect(self.add_list_item)
+
+    def add_list_item(self):
+        current_id = self.config.insert_config()
+        self.add_item(current_id)
+
+    def load_config(self):
+        for i in self.config.select_all():
+            cid, name, command = i
+            self.add_item(cid, name, command)
+
+    def add_item(self, cid, name=None, command=None):
+        item = QListWidgetItem()
+        item.setSizeHint(QSize(200, 50))
+        self.item_index[cid] = item
+        widget = Items(cid=cid, name=name, command=command, save_fun=self.config.update_config,
+                       delete_fun=self.delete_item, send_fun=self.send_fun)
+        self.listWidget.addItem(item)
+        self.listWidget.setItemWidget(item, widget)
+
+    def delete_item(self, cid):
+        print(cid, [i for i in self.item_index.keys()].index(cid))
+        self.listWidget.takeItem([i for i in self.item_index.keys()].index(cid))
+        self.item_index.pop(cid)
+        self.config.delete(cid)
+        self.repaint()
+
+
 class MainWindow(Ui_MainWindow, QMainWindow):
 
     def __init__(self, *args, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
-
         self.set_dialog = SetDialog()
+        self.command_list = CommandList(self.com_send)
         self.setupUi(self)  # 初始化ui
         self.setWindowTitle('串口调试工具')
         self.com_response_queue = queue.Queue()
@@ -53,12 +98,13 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         self.set_dialog.radioButton_3.clicked.connect(lambda: self.rec_setting_select("utf-8"))
         self.set_dialog.radioButton_4.clicked.connect(lambda: self.send_setting_select("utf-8"))
         self.set_dialog.radioButton_5.clicked.connect(lambda: self.send_setting_select("hex"))
+        self.pushButton_8.clicked.connect(self.command_list.show)
 
     def deal_com_response(self):
         if len(self.com_response_queue.queue):
             rec_data = self.com_response_queue.get()
             report_type, report_time, code, msg, data = tuple(rec_data.values())
-            logger.info("[{}] type：{} code:{} msg:{} data:{}".format(report_time, report_type, code, msg, data))
+            # logger.info("[{}] type：{} code:{} msg:{} data:{}".format(report_time, report_type, code, msg, data))
             if report_type == "search":
                 self.fresh_com(data)
             elif report_type == "open":
@@ -86,8 +132,8 @@ class MainWindow(Ui_MainWindow, QMainWindow):
             elif report_type == "send":
                 if code == 0:
                     send_bin, fun_name, args = tuple(data.values())
-                    self.textBrowser.append("[SEND][{}]:{}".format(report_time,
-                                                                   self.turn_data(data["bin"], self.receive_format)))
+                    self.textBrowser.append("[  SEND ][{}]:{}".format(report_time,
+                                                                      self.turn_data(data["bin"], self.receive_format)))
                     if fun_name is not None:
                         try:
                             fun_name(*args)
@@ -116,8 +162,16 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         else:
             self.com_dealer.close()
 
-    def com_send(self):
-        data = self.textEdit.toPlainText()
+    def com_send(self, send_data=None):
+        if not self.com_dealer.com.isOpen():
+            QMessageBox().critical(self, "ERROR", "请先打开串口")
+            return
+        if not isinstance(send_data, str):
+            data = self.textEdit.toPlainText()
+        else:
+            data = send_data
+        if data == "":
+            return
         if self.send_format == "hex":
             data = data.replace(" ", "")
             try:
