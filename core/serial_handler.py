@@ -1,6 +1,4 @@
 import datetime
-import sys
-import threading
 import time
 from serial import Serial
 import serial.tools.list_ports
@@ -11,7 +9,7 @@ from queue import Queue
 
 def with_thread(obj):
     def threads(*args, **kwargs):
-        t = threading.Thread(target=obj, args=args, kwargs=kwargs, daemon=True)
+        t = Thread(target=obj, args=args, kwargs=kwargs, daemon=True)
         t.start()
     return threads
 
@@ -47,9 +45,8 @@ class ComHandler(object):
         except Exception as e:
             self.__report("close", 1, "close port error:{}".format(e))
 
-
     @with_thread
-    def search(self, *args):
+    def search(self):
         self.__report("search", 0, 'success', serial.tools.list_ports.comports())
 
     @with_thread
@@ -86,17 +83,3 @@ class ComHandler(object):
 
     def send(self, send_bin, callback=None, args=None, gap=None):
         self.send_queue.put({"bin": send_bin, "callback": callback, "args": args, "gap": gap})
-
-
-if __name__ == "__main__":
-    wait_queue = Queue()
-    com = ComHandler(wait_queue)
-    # com.search()
-    com.open("COM4", 9600)
-    a = 1
-    while True:
-        # print(wait_queue.get())
-        com.send("send：{}".format(a).encode(), gap=48)
-        a += 1
-
-

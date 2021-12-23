@@ -1,11 +1,10 @@
 import binascii
+import json
 import queue
 from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QApplication, QMessageBox, QMainWindow, QFileDialog, QWidget, QStyleOption, QStyle, \
-    QListWidgetItem
+from PyQt5.QtWidgets import QApplication, QMessageBox, QMainWindow, QWidget, QListWidgetItem
 from PyQt5.QtCore import QTimer, Qt, QSize
-
-from db.table import DbConfig
+from db.table import DbConfig, SysConfig
 from ui.MainWindow import Ui_MainWindow
 from ui.command_items import Items
 from ui.tool_set import Ui_Dialog
@@ -70,6 +69,7 @@ class CommandList(Command_Ui_Dialog, QWidget):
         self.item_index.pop(cid)
         self.config.delete(cid)
         self.repaint()
+        self.fill_combobox()
 
     def fill_combobox(self):
         all_category = self.config.get_category()
@@ -106,6 +106,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         super(MainWindow, self).__init__(*args, **kwargs)
         self.set_dialog = SetDialog()
         self.command_list = CommandList(self.com_send)
+        self.sys_config = SysConfig()
         self.setupUi(self)  # 初始化ui
         self.setWindowTitle('串口调试工具')
         self.com_response_queue = queue.Queue()
@@ -119,6 +120,8 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         self.receive_format = "utf-8"
         self.send_format = "utf-8"
 
+        self.load_sys_config()
+
     def __connect(self):
         self.pushButton_5.clicked.connect(self.com_dealer.search)
         self.pushButton_2.clicked.connect(self.open_current_com)
@@ -131,6 +134,25 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         self.set_dialog.radioButton_5.clicked.connect(lambda: self.send_setting_select("hex"))
         self.pushButton_8.clicked.connect(self.command_list.show)
 
+    def load_sys_config(self):
+        # 加载本地配置
+        res = self.sys_config.get_by_key("receive_type")
+        if res is not None:
+            self.receive_format = res
+            if res == "bytes":
+                self.set_dialog.radioButton.setChecked(True)
+            elif res == "hex":
+                self.set_dialog.radioButton_2.setChecked(True)
+            else:
+                self.set_dialog.radioButton_3.setChecked(True)
+        res = self.sys_config.get_by_key("send_type")
+        if res is not None:
+            self.send_format = res
+            if res == "hex":
+                self.set_dialog.radioButton_5.setChecked(True)
+            else:
+                self.set_dialog.radioButton_4.setChecked(True)
+
     def deal_com_response(self):
         if len(self.com_response_queue.queue):
             rec_data = self.com_response_queue.get()
@@ -138,12 +160,19 @@ class MainWindow(Ui_MainWindow, QMainWindow):
             # logger.info("[{}] type：{} code:{} msg:{} data:{}".format(report_time, report_type, code, msg, data))
             if report_type == "search":
                 self.fresh_com(data)
+                res = self.sys_config.get_by_key("COM_SETTING")
+                if res is not None:
+                    self.lineEdit.setText(res["baud_rate"])
+                    self.comboBox.setCurrentText(res["com_name"])
             elif report_type == "open":
                 if code == 0:
                     self.pushButton_2.setText("关闭")
                     self.lineEdit.setEnabled(False)
                     self.comboBox.setEnabled(False)
                     self.pushButton_5.setEnabled(False)
+                    self.sys_config.update(key="COM_SETTING", save_type="json",
+                                           value=json.dumps({"com_name": self.comboBox.currentText(),
+                                                             "baud_rate": self.lineEdit.text()}))
                 else:
                     QMessageBox(self).critical(self, "ERROR", msg)
             elif report_type == "close":
@@ -219,9 +248,11 @@ class MainWindow(Ui_MainWindow, QMainWindow):
 
     def rec_setting_select(self, select):
         self.receive_format = select
+        self.sys_config.update(key="receive_type", save_type="str", value=select)
 
     def send_setting_select(self, select):
         self.send_format = select
+        self.sys_config.update(key="send_type", save_type="str", value=select)
 
     @staticmethod
     def turn_data(data, frm):
