@@ -46,7 +46,7 @@ class ComHandler(object):
             self.__report("close", 1, "close port error:{}".format(e))
 
     @with_thread
-    def search(self):
+    def search(self, *args):
         self.__report("search", 0, 'success', serial.tools.list_ports.comports())
 
     @with_thread
@@ -55,6 +55,7 @@ class ComHandler(object):
             try:
                 if self.com.in_waiting:
                     res = self.com.read(self.com.in_waiting)
+                    print(res)
                     self.__report("receive", 0, 'success', res)
             except Exception as e:
                 self.__report("receive", 1, "receive error:{}".format(e))

@@ -1,9 +1,14 @@
 import binascii
+import datetime
 import json
 import queue
+import time
+
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QApplication, QMessageBox, QMainWindow, QWidget, QListWidgetItem
 from PyQt5.QtCore import QTimer, Qt, QSize
+
+from core.package_cotain import Dealer
 from db.table import DbConfig, SysConfig
 from ui.MainWindow import Ui_MainWindow
 from ui.command_items import Items
@@ -117,6 +122,10 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         self.com_deal_timer.start(5)
         self.com_dealer.search()
 
+        self.receive_queue = queue.Queue()
+        self.package_dealer = Dealer(self.receive_queue)
+        self.package_dealer.msg.connect(self.com_receive)
+
         self.receive_format = "utf-8"
         self.send_format = "utf-8"
 
@@ -185,8 +194,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
                     QMessageBox(self).critical(self, "ERROR", msg)
             elif report_type == "receive":
                 if code == 0:
-                    self.textBrowser.append("[RECEIVE][{}]:{}".format(report_time,
-                                                                      self.turn_data(data, self.receive_format)))
+                    self.receive_queue.put(data)
                 else:
                     self.com_dealer.close()
             elif report_type == "send":
@@ -242,6 +250,10 @@ class MainWindow(Ui_MainWindow, QMainWindow):
             self.com_dealer.send(data, gap=48)
         else:
             self.com_dealer.send(data.encode(errors="ignore"), gap=48)
+
+    def com_receive(self, input_bytes):
+        self.textBrowser.append("[RECEIVE][{}]:{}".format(datetime.datetime.now().strftime("%Y-%m-%d, %H:%M:%S.%f"),
+                                                          self.turn_data(input_bytes, self.receive_format)))
 
     def setting(self):
         self.set_dialog.show()
