@@ -1,6 +1,7 @@
 import time
 from PyQt5.QtCore import QObject, pyqtSignal
 from threading import Thread, Lock
+from core.logger import logger
 
 
 class Dealer(QObject):
@@ -20,8 +21,10 @@ class Dealer(QObject):
         self.len_position = 2, 4
         # 报文长度字节 + 附加字节 == 报文全长
         self.add_len = 4
-        Thread(target=self.__receive, daemon=True).start()
-        Thread(target=self.package_contain, daemon=True).start()
+        # 等待时长 一次为0.01s
+        self.wait_count = 10
+        Thread(target=self.__receive, daemon=True, name="Receive").start()
+        Thread(target=self.package_contain, daemon=True, name="PackageContain").start()
 
     def __receive(self):
         while True:
@@ -44,6 +47,7 @@ class Dealer(QObject):
                     if not self.com_str[index:].startswith(self.head):
                         self.err_str += self.com_str[index:index+1]
                         index += 1
+                        continue
                     length = self.com_str[index:][self.len_position[0]:self.len_position[1]]
                     if self.endian:
                         length = length[::-1]
@@ -52,7 +56,10 @@ class Dealer(QObject):
                         break
                     num_length = int(length.hex(), 16)
                     # 当前报文不满足获取整体报文 跳出循环等待后续字节
-                    if len(self.com_str[index:]) < num_length + self.add_len:
+                    current_len = len(self.com_str[index:])
+                    if current_len < num_length + self.add_len:
+                        if wait_count == 0:
+                            logger.info("wish len:{} current len:{}".format(num_length + self.add_len, current_len))
                         break
                     else:
                         # 获取到正确报文 上报
@@ -68,8 +75,7 @@ class Dealer(QObject):
                     time.sleep(0.01)
                     wait_count += 1
                 # 超过10次index连续为0 将self.com_str清空
-                print(index, wait_count)
-                if wait_count > 10:
+                if wait_count > self.wait_count:
                     wait_count = 0
                     self.report(self.com_str[index:index + deal_len], False)
                     self.com_lock.acquire()
@@ -85,10 +91,13 @@ class Dealer(QObject):
         if contain_success:
             if self.err_str != b"":
                 self.msg.emit(self.err_str)
+                logger.info("[CONTAIN_ERR]len:{} data:{}".format(len(self.err_str), self.err_str))
                 self.err_str = b""
             self.msg.emit(package)
+            logger.info("[CONTAIN_SUCCESS]len:{} data:{}".format(len(package), package))
         else:
             res_str = self.err_str + package
             if res_str:
                 self.msg.emit(res_str)
                 self.err_str = b""
+                logger.info("[CONTAIN_ERR] len:{} data:{}".format(len(res_str), res_str))

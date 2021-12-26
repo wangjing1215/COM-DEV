@@ -2,12 +2,10 @@ import binascii
 import datetime
 import json
 import queue
-import time
-
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QApplication, QMessageBox, QMainWindow, QWidget, QListWidgetItem
 from PyQt5.QtCore import QTimer, Qt, QSize
-
+from core.logger import logger
 from core.package_cotain import Dealer
 from db.table import DbConfig, SysConfig
 from ui.MainWindow import Ui_MainWindow
@@ -16,10 +14,6 @@ from ui.tool_set import Ui_Dialog
 from ui.command_list import Ui_Dialog as Command_Ui_Dialog
 import ui.source_rc
 from core.serial_handler import ComHandler
-import logging
-
-logging.basicConfig(level=logging.INFO, format='%(name)s-%(levelname)s-%(message)s')
-logger = logging.getLogger("COM")
 
 
 class SetDialog(Ui_Dialog, QWidget):
@@ -165,8 +159,16 @@ class MainWindow(Ui_MainWindow, QMainWindow):
     def deal_com_response(self):
         if len(self.com_response_queue.queue):
             rec_data = self.com_response_queue.get()
-            report_type, report_time, code, msg, data = tuple(rec_data.values())
-            # logger.info("[{}] type：{} code:{} msg:{} data:{}".format(report_time, report_type, code, msg, data))
+            report_type, report_time, com_name, code, msg, data = tuple(rec_data.values())
+            log_msg = "{}report_time:{} type:{} code:{} ".format(com_name, report_time, report_type.center(7), code)
+            if report_type in ("open", "close") or code != 0:
+                log_msg += "msg:{}".format(msg)
+            elif report_type in ("receive", "send"):
+                msg_bin = data["bin"] if isinstance(data, dict) else data
+                log_msg += "len:{} data:{}".format(len(msg_bin), msg_bin)
+            else:
+                log_msg += "result:" + ",".join([i.device for i in data])
+            logger.info(log_msg)
             if report_type == "search":
                 self.fresh_com(data)
                 res = self.sys_config.get_by_key("COM_SETTING")

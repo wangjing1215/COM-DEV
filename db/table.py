@@ -2,6 +2,7 @@ import json
 import sqlite3
 import os
 from setting import BASE_PATH
+from core.logger import logger
 
 
 class DbBase(object):
@@ -23,9 +24,11 @@ class DbBase(object):
             self.conn = sqlite3.connect('com.db')
             c = self.conn.cursor()
             c.execute(sql)
+            # logger.info("sql:{}".format(sql))
             return c.fetchall()
         except Exception as e:
             print(sql, e)
+            logger.error("sql:{} error:{}".format(sql, e))
             return []
         finally:
             if commit:
