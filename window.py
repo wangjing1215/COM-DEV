@@ -14,16 +14,21 @@ from ui.tool_set import Ui_Dialog
 from ui.command_list import Ui_Dialog as Command_Ui_Dialog
 import ui.source_rc
 from core.serial_handler import ComHandler
+from core.key import Key
 
 
 class SetDialog(Ui_Dialog, QWidget):
     def __init__(self,  *args, **kwargs):
         super(SetDialog, self).__init__(*args, **kwargs)
         self.setupUi(self)
+        self.__init_ui()
+
+    def __init_ui(self):
         self.setWindowTitle('设置')
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
         self.radioButton_3.setChecked(True)
         self.radioButton_4.setChecked(True)
+        self.radioButton_6.setEnabled(False)
 
 
 class CommandList(Command_Ui_Dialog, QWidget):
@@ -130,16 +135,27 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         self.pushButton_2.clicked.connect(self.open_current_com)
         self.pushButton_4.clicked.connect(self.com_send)
         self.pushButton_3.clicked.connect(self.setting)
+        self.pushButton_8.clicked.connect(self.command_list.show)
+        # 设置框的信号绑定
         self.set_dialog.radioButton.clicked.connect(lambda: self.rec_setting_select("bytes"))
         self.set_dialog.radioButton_2.clicked.connect(lambda: self.rec_setting_select("hex"))
         self.set_dialog.radioButton_3.clicked.connect(lambda: self.rec_setting_select("utf-8"))
         self.set_dialog.radioButton_4.clicked.connect(lambda: self.send_setting_select("utf-8"))
         self.set_dialog.radioButton_5.clicked.connect(lambda: self.send_setting_select("hex"))
-        self.pushButton_8.clicked.connect(self.command_list.show)
+        # 设置串口环回
+        self.set_dialog.checkBox_2.clicked.connect(self.set_com_loop)
+        # 设置大小端
+        self.set_dialog.checkBox.clicked.connect(self.set_endian)
+        # 设置报文拼接
+        self.set_dialog.checkBox_3.clicked.connect(self.set_package_contain)
+        # 设置拼接字符串的头部
+        self.set_dialog.lineEdit.editingFinished.connect(self.set_package_head)
+        # 设置拼接字符串的长度字节所在位置
+        self.set_dialog.lineEdit_2.editingFinished.connect(self.set_package_len)
 
     def load_sys_config(self):
         # 加载本地配置
-        res = self.sys_config.get_by_key("receive_type")
+        res = self.sys_config.get_by_key(Key.receive_type)
         if res is not None:
             self.receive_format = res
             if res == "bytes":
@@ -148,13 +164,40 @@ class MainWindow(Ui_MainWindow, QMainWindow):
                 self.set_dialog.radioButton_2.setChecked(True)
             else:
                 self.set_dialog.radioButton_3.setChecked(True)
-        res = self.sys_config.get_by_key("send_type")
+        res = self.sys_config.get_by_key(Key.send_type)
         if res is not None:
             self.send_format = res
             if res == "hex":
                 self.set_dialog.radioButton_5.setChecked(True)
             else:
                 self.set_dialog.radioButton_4.setChecked(True)
+        # 设置串口环回
+        res = self.sys_config.get_by_key(Key.loop_deal)
+        if res is not None:
+            self.set_dialog.checkBox_2.setChecked(True if res else False)
+        # 设置大小端
+        res = self.sys_config.get_by_key(Key.endian)
+        if res is not None:
+            self.package_dealer.endian = res
+            self.set_dialog.checkBox.setChecked(True if res else False)
+        # 设置是否开启报文拼接
+        res = self.sys_config.get_by_key(Key.package_contain)
+        if res is not None:
+            self.set_dialog.checkBox_3.setChecked(True if res else False)
+            self.package_dealer.is_start = True if res else False
+            if res:
+                self.set_dialog.lineEdit.setEnabled(True)
+                self.set_dialog.lineEdit_2.setEnabled(True)
+        # 设置报文头部
+        res = self.sys_config.get_by_key(Key.package_head)
+        if res is not None:
+            self.package_dealer.set_head(res)
+            self.set_dialog.lineEdit.setText(res)
+        # 设置报文长度字节所在位置
+        res = self.sys_config.get_by_key(Key.package_len)
+        if res is not None:
+            self.package_dealer.set_len(res)
+            self.set_dialog.lineEdit_2.setText(res)
 
     def deal_com_response(self):
         if len(self.com_response_queue.queue):
@@ -171,7 +214,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
             logger.info(log_msg)
             if report_type == "search":
                 self.fresh_com(data)
-                res = self.sys_config.get_by_key("COM_SETTING")
+                res = self.sys_config.get_by_key(Key.COM_SETTING)
                 if res is not None:
                     self.lineEdit.setText(res["baud_rate"])
                     self.comboBox.setCurrentText(res["com_name"])
@@ -202,8 +245,9 @@ class MainWindow(Ui_MainWindow, QMainWindow):
             elif report_type == "send":
                 if code == 0:
                     send_bin, fun_name, args = tuple(data.values())
-                    self.textBrowser.append("[  SEND ][{}]:{}".format(report_time,
-                                                                      self.turn_data(data["bin"], self.receive_format)))
+                    self.textBrowser.append("[  SEND ][{}]:{}".format(
+                        datetime.datetime.now().strftime("%Y-%m-%d, %H:%M:%S.%f"),
+                        self.turn_data(data["bin"], self.receive_format)))
                     if fun_name is not None:
                         try:
                             fun_name(*args)
@@ -262,11 +306,11 @@ class MainWindow(Ui_MainWindow, QMainWindow):
 
     def rec_setting_select(self, select):
         self.receive_format = select
-        self.sys_config.update(key="receive_type", save_type="str", value=select)
+        self.sys_config.update(key=Key.receive_type, save_type="str", value=select)
 
     def send_setting_select(self, select):
         self.send_format = select
-        self.sys_config.update(key="send_type", save_type="str", value=select)
+        self.sys_config.update(key=Key.send_type, save_type="str", value=select)
 
     @staticmethod
     def turn_data(data, frm):
@@ -276,6 +320,25 @@ class MainWindow(Ui_MainWindow, QMainWindow):
             return data.hex(" ")
         elif frm == "utf-8":
             return data.decode(errors="ignore")
+
+    def set_com_loop(self, flag):
+        self.sys_config.update(key=Key.loop_deal, save_type="int", value=1 if flag else 0)
+
+    def set_endian(self, flag):
+        self.package_dealer.endian = 1 if flag else 0
+        self.sys_config.update(key=Key.endian, save_type="int", value=1 if flag else 0)
+
+    def set_package_contain(self, flag):
+        self.package_dealer.is_start = flag
+        self.sys_config.update(key=Key.package_contain, save_type="int", value=1 if flag else 0)
+
+    def set_package_head(self):
+        self.package_dealer.set_head(self.set_dialog.lineEdit.text())
+        self.sys_config.update(key=Key.package_head, save_type="str", value=self.set_dialog.lineEdit.text())
+
+    def set_package_len(self):
+        self.package_dealer.set_len(self.set_dialog.lineEdit_2.text())
+        self.sys_config.update(key=Key.package_len, save_type="str", value=self.set_dialog.lineEdit_2.text())
 
 
 if __name__ == "__main__":

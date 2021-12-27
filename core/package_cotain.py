@@ -13,6 +13,8 @@ class Dealer(QObject):
         self.com_str = b""
         self.err_str = b""
         self.com_lock = Lock()
+        # 是否开启报文拼接
+        self.is_start = False
         # 大小端
         self.endian = 0
         # 报文头部
@@ -26,12 +28,31 @@ class Dealer(QObject):
         Thread(target=self.__receive, daemon=True, name="Receive").start()
         Thread(target=self.package_contain, daemon=True, name="PackageContain").start()
 
+    def set_head(self, input_str):
+        try:
+            res = input_str.split(",")
+            self.head = tuple([i.encode() for i in res])
+            logger.info("set head:{}".format(self.head))
+        except Exception as e:
+            logger.error("parse error:{}".format(e))
+
+    def set_len(self, input_str):
+        try:
+            res = input_str.split(":")
+            self.len_position = tuple([int(i) for i in res])
+            logger.info("set head:{}".format(self.len_position))
+        except Exception as e:
+            logger.error("parse error:{}".format(e))
+
     def __receive(self):
         while True:
             data = self.receive_queue.get()
-            self.com_lock.acquire()
-            self.com_str += data
-            self.com_lock.release()
+            if self.is_start:
+                self.com_lock.acquire()
+                self.com_str += data
+                self.com_lock.release()
+            else:
+                self.report(data, 2)
 
     def package_contain(self):
         wait_count = 0
@@ -52,7 +73,7 @@ class Dealer(QObject):
                     if self.endian:
                         length = length[::-1]
                     # 当前报文不满足获取长度字节 跳出循环等待后续字节
-                    if len(length) < 2:
+                    if len(length) < self.len_position[1] - self.len_position[0]:
                         break
                     num_length = int(length.hex(), 16)
                     # 当前报文不满足获取整体报文 跳出循环等待后续字节
@@ -64,7 +85,7 @@ class Dealer(QObject):
                     else:
                         # 获取到正确报文 上报
                         end_position = index + num_length + self.add_len
-                        self.report(self.com_str[index:end_position], True)
+                        self.report(self.com_str[index:end_position], 0)
                         index = end_position
                 if index > 0:
                     self.com_lock.acquire()
@@ -77,27 +98,30 @@ class Dealer(QObject):
                 # 超过10次index连续为0 将self.com_str清空
                 if wait_count > self.wait_count:
                     wait_count = 0
-                    self.report(self.com_str[index:index + deal_len], False)
+                    self.report(self.com_str[index:index + deal_len], 1)
                     self.com_lock.acquire()
                     self.com_str = self.com_str[deal_len:]
                     self.com_lock.release()
             else:
                 # 当前没有报文 如果存在错误报文 也需吐出
-                self.report(b"", False)
+                self.report(b"", 1)
                 time.sleep(0.01)
 
-    def report(self, package, contain_success):
+    def report(self, package, contain_flag):
         # 拼接成功的情况下 先吐出错误报文 不成功地情况下 一起吐出 并置空错误拼接字符串
-        if contain_success:
+        if contain_flag == 0:
             if self.err_str != b"":
                 self.msg.emit(self.err_str)
                 logger.info("[CONTAIN_ERR]len:{} data:{}".format(len(self.err_str), self.err_str))
                 self.err_str = b""
             self.msg.emit(package)
             logger.info("[CONTAIN_SUCCESS]len:{} data:{}".format(len(package), package))
-        else:
+        elif contain_flag == 1:
             res_str = self.err_str + package
             if res_str:
                 self.msg.emit(res_str)
                 self.err_str = b""
                 logger.info("[CONTAIN_ERR] len:{} data:{}".format(len(res_str), res_str))
+        else:
+            self.msg.emit(package)
+            logger.info("[CONTAIN_IGNORE] len:{} data:{}".format(len(package), package))
