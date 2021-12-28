@@ -256,6 +256,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
                 else:
                     QMessageBox(self).critical(self, "ERROR", msg)
                     self.com_dealer.close()
+        return None
 
     def fresh_com(self, all_com):
         self.comboBox.clear()
